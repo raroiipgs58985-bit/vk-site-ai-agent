@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: vk-site-ai-agent
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --threads 4 --timeout 600 --bind 0.0.0.0:$PORT
+    healthCheckPath: /health
+    envVars:
+      - key: SITE_BASE_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: AGENT_SECRET
+        sync: false
+      - key: GROQ_MODEL
+        value: qwen/qwen3.6-27b
+      - key: SITE_MAX_PAGES
+        value: "120"
+      - key: SITE_DEEP_MAX_PAGES
+        value: "350"
+      - key: SITE_CONCURRENCY
+        value: "4"
+      - key: SITE_REQUEST_DELAY
+        value: "0.25"
+      - key: RESPECT_ROBOTS_TXT
+        value: "true"
