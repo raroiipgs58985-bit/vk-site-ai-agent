@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
+from typing import Iterable
 
 from ai import OpenRouterClient
 from config import Settings
 from crawler import CrawlOutcome, SiteCrawler
 from mediawiki import MediaWikiSearcher
-from search import build_source_context, chunk_documents, rank_chunks
+from search import TextChunk, build_source_context, chunk_documents, rank_chunks
 from security import validate_public_http_url
+from source_utils import canonicalize_source_url
 from tavily_search import TavilySearcher
+
+
+_CITATION_RE = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
 
 
 @dataclass(frozen=True)
@@ -24,6 +30,95 @@ class ResearchResult:
     search_queries: list[str]
     elapsed_seconds: float
     search_backend: str
+
+
+def _ordered_unique(values: Iterable[int]) -> list[int]:
+    result: list[int] = []
+    seen: set[int] = set()
+    for value in values:
+        if value <= 0 or value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+
+def _citation_ids(answer: str) -> list[int]:
+    values: list[int] = []
+    for match in _CITATION_RE.finditer(answer):
+        for raw in match.group(1).split(","):
+            try:
+                values.append(int(raw.strip()))
+            except ValueError:
+                continue
+    return _ordered_unique(values)
+
+
+def _rewrite_citations(answer: str, mapping: dict[int, int]) -> str:
+    def replace(match: re.Match[str]) -> str:
+        remapped: list[int] = []
+        for raw in match.group(1).split(","):
+            try:
+                source_id = int(raw.strip())
+            except ValueError:
+                continue
+            display_id = mapping.get(source_id)
+            if display_id is not None and display_id not in remapped:
+                remapped.append(display_id)
+        if not remapped:
+            return ""
+        return "[" + ", ".join(str(value) for value in remapped) + "]"
+
+    rewritten = _CITATION_RE.sub(replace, answer)
+    rewritten = re.sub(r"[ \t]+([,.;:])", r"\1", rewritten)
+    rewritten = re.sub(r" {2,}", " ", rewritten)
+    return rewritten.strip()
+
+
+def prepare_answer_sources(
+    answer: str,
+    used_source_ids: list[int],
+    included: list[TextChunk],
+    *,
+    max_sources: int = 6,
+) -> tuple[str, list[dict[str, str]]]:
+    """Deduplicate pages and rewrite model citations to the displayed source list."""
+    candidate_ids = _ordered_unique([
+        *_citation_ids(answer),
+        *used_source_ids,
+    ])
+    if not candidate_ids:
+        candidate_ids = list(range(1, min(4, len(included)) + 1))
+
+    sources: list[dict[str, str]] = []
+    display_by_url: dict[str, int] = {}
+    display_by_context_id: dict[int, int] = {}
+
+    for context_id in candidate_ids:
+        if not 1 <= context_id <= len(included):
+            continue
+        chunk = included[context_id - 1]
+        canonical_url = canonicalize_source_url(chunk.url) or chunk.url
+        display_id = display_by_url.get(canonical_url)
+        if display_id is None:
+            if len(sources) >= max_sources:
+                continue
+            display_id = len(sources) + 1
+            display_by_url[canonical_url] = display_id
+            sources.append({
+                "title": chunk.title,
+                "url": canonical_url,
+            })
+        display_by_context_id[context_id] = display_id
+
+    # A model can cite another excerpt from a page already selected above.
+    for context_id, chunk in enumerate(included, start=1):
+        canonical_url = canonicalize_source_url(chunk.url) or chunk.url
+        display_id = display_by_url.get(canonical_url)
+        if display_id is not None:
+            display_by_context_id[context_id] = display_id
+
+    return _rewrite_citations(answer, display_by_context_id), sources
 
 
 class SiteResearchService:
@@ -114,29 +209,25 @@ class SiteResearchService:
             ranked,
             max_chars=self.settings.max_context_chars,
         )
+        answer_limit = min(
+            self.settings.max_answer_chars,
+            6000 if deep else 3200,
+        )
         draft = ai.compose_answer(
             question=question,
             english_question=plan.english_question,
             source_context=context,
-            max_answer_chars=self.settings.max_answer_chars,
+            max_answer_chars=answer_limit,
+        )
+        answer, sources = prepare_answer_sources(
+            draft.answer,
+            draft.used_source_ids,
+            included,
+            max_sources=8 if deep else 6,
         )
 
-        selected_ids = draft.used_source_ids or list(range(1, min(4, len(included)) + 1))
-        sources: list[dict[str, str]] = []
-        seen_urls: set[str] = set()
-        for source_id in selected_ids:
-            if not 1 <= source_id <= len(included):
-                continue
-            chunk = included[source_id - 1]
-            if chunk.url in seen_urls:
-                continue
-            seen_urls.add(chunk.url)
-            sources.append({"title": chunk.title, "url": chunk.url})
-            if len(sources) >= 8:
-                break
-
         return ResearchResult(
-            answer=draft.answer,
+            answer=answer,
             sources=sources,
             confidence=draft.confidence,
             pages_scanned=len(crawl.pages),

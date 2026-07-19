@@ -8,6 +8,7 @@ import requests
 from ai import QueryPlan
 from config import Settings
 from crawler import PageDocument
+from source_utils import canonicalize_source_url
 
 
 _TAVILY_SEARCH_URL = "https://api.tavily.com/search"
@@ -88,7 +89,8 @@ class TavilySearcher:
             for item in raw_results:
                 if not isinstance(item, dict):
                     continue
-                url = str(item.get("url", "")).strip()
+                original_url = str(item.get("url", "")).strip()
+                url = canonicalize_source_url(original_url)
                 title = str(item.get("title", "")).strip() or url
                 if not self._allowed_url(url):
                     continue

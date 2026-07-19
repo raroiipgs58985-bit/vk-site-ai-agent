@@ -42,6 +42,10 @@ def _tokens(text: str) -> list[str]:
     ]
 
 
+def _normalized_subject(text: str) -> str:
+    return " ".join(_tokens(text))
+
+
 def chunk_documents(
     pages: Iterable[PageDocument], *, size: int = 1800, overlap: int = 250
 ) -> list[TextChunk]:
@@ -57,7 +61,10 @@ def chunk_documents(
         while start < len(text):
             end = min(len(text), start + size)
             if end < len(text):
-                boundary = max(text.rfind(". ", start + size // 2, end), text.rfind("; ", start + size // 2, end))
+                boundary = max(
+                    text.rfind(". ", start + size // 2, end),
+                    text.rfind("; ", start + size // 2, end),
+                )
                 if boundary > start:
                     end = boundary + 1
             piece = text[start:end].strip()
@@ -87,6 +94,15 @@ def rank_chunks(chunks: list[TextChunk], plan: QueryPlan, *, limit: int = 14) ->
     query_counts = Counter(query_tokens)
     if not query_counts:
         return []
+
+    primary_subjects = {
+        normalized
+        for normalized in (
+            _normalized_subject(value)
+            for value in [*plan.entities[:3], plan.english_question]
+        )
+        if normalized
+    }
 
     chunk_token_counts: list[Counter[str]] = []
     document_frequency: Counter[str] = Counter()
@@ -129,6 +145,13 @@ def rank_chunks(chunks: list[TextChunk], plan: QueryPlan, *, limit: int = 14) ->
                 score += 12.0
             if phrase in lowered_url:
                 score += 6.0
+
+        normalized_title = _normalized_subject(chunk.title)
+        for subject in primary_subjects:
+            if normalized_title == subject:
+                score += 35.0
+            elif normalized_title.startswith(subject + " ") or subject.startswith(normalized_title + " "):
+                score += 16.0
 
         title_hits = sum(1 for token in query_counts if token in lowered_title)
         url_hits = sum(1 for token in query_counts if token in lowered_url)
