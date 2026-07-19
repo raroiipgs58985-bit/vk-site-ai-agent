@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 
 def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -49,6 +49,13 @@ class Settings:
     allow_subdomains: bool
     respect_robots: bool
     job_timeout_seconds: int
+    search_mode: str = "auto"
+    mediawiki_api_url: str = ""
+    mediawiki_article_path: str = "/wiki/{title}"
+    mediawiki_results_per_query: int = 8
+    mediawiki_deep_results_per_query: int = 15
+    mediawiki_query_limit: int = 6
+    mediawiki_deep_query_limit: int = 8
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -64,21 +71,51 @@ class Settings:
                 "GROQ_MODEL", "qwen/qwen3.6-27b"
             ).strip(),
             user_agent=os.environ.get(
-                "SITE_USER_AGENT", "KubyatnyaSiteAgent/2.0 (+site research bot)"
+                "SITE_USER_AGENT", "KubyatnyaSiteAgent/2.1 (+site research bot)"
             ).strip(),
-            max_pages=_env_int("SITE_MAX_PAGES", 120, 1, 2000),
-            deep_max_pages=_env_int("SITE_DEEP_MAX_PAGES", 350, 1, 5000),
+            max_pages=_env_int("SITE_MAX_PAGES", 40, 1, 2000),
+            deep_max_pages=_env_int("SITE_DEEP_MAX_PAGES", 100, 1, 5000),
             max_sitemap_urls=_env_int("SITE_MAX_SITEMAP_URLS", 10000, 100, 100000),
             request_timeout_seconds=_env_int("SITE_REQUEST_TIMEOUT", 20, 3, 120),
-            request_delay_seconds=_env_float("SITE_REQUEST_DELAY", 0.25, 0.0, 10.0),
+            request_delay_seconds=_env_float("SITE_REQUEST_DELAY", 0.5, 0.0, 10.0),
             max_page_bytes=_env_int("SITE_MAX_PAGE_BYTES", 3_000_000, 100_000, 20_000_000),
-            concurrency=_env_int("SITE_CONCURRENCY", 4, 1, 12),
+            concurrency=_env_int("SITE_CONCURRENCY", 3, 1, 12),
             max_context_chars=_env_int("MAX_CONTEXT_CHARS", 18_000, 4_000, 40_000),
             max_answer_chars=_env_int("MAX_ANSWER_CHARS", 8_000, 1_000, 20_000),
             allow_subdomains=_env_bool("SITE_ALLOW_SUBDOMAINS", False),
             respect_robots=_env_bool("RESPECT_ROBOTS_TXT", True),
             job_timeout_seconds=_env_int("JOB_TIMEOUT_SECONDS", 480, 60, 900),
+            search_mode=os.environ.get("SITE_SEARCH_MODE", "auto").strip().casefold() or "auto",
+            mediawiki_api_url=os.environ.get("MEDIAWIKI_API_URL", "").strip(),
+            mediawiki_article_path=os.environ.get(
+                "MEDIAWIKI_ARTICLE_PATH", "/wiki/{title}"
+            ).strip() or "/wiki/{title}",
+            mediawiki_results_per_query=_env_int(
+                "MEDIAWIKI_RESULTS_PER_QUERY", 8, 1, 50
+            ),
+            mediawiki_deep_results_per_query=_env_int(
+                "MEDIAWIKI_DEEP_RESULTS_PER_QUERY", 15, 1, 100
+            ),
+            mediawiki_query_limit=_env_int("MEDIAWIKI_QUERY_LIMIT", 6, 1, 12),
+            mediawiki_deep_query_limit=_env_int(
+                "MEDIAWIKI_DEEP_QUERY_LIMIT", 8, 1, 16
+            ),
         )
+
+    @property
+    def resolved_search_mode(self) -> str:
+        if self.search_mode in {"crawl", "mediawiki"}:
+            return self.search_mode
+        hostname = (urlsplit(self.site_base_url).hostname or "").casefold()
+        if self.mediawiki_api_url or hostname.endswith("lexicanum.com"):
+            return "mediawiki"
+        return "crawl"
+
+    @property
+    def resolved_mediawiki_api_url(self) -> str:
+        if self.mediawiki_api_url:
+            return self.mediawiki_api_url
+        return urljoin(self.site_base_url, "/mediawiki/api.php")
 
     def validate(self) -> list[str]:
         errors: list[str] = []
@@ -91,4 +128,14 @@ class Settings:
             errors.append("GROQ_API_KEY не задан")
         if not self.groq_model:
             errors.append("GROQ_MODEL не задан")
+        if self.search_mode not in {"auto", "crawl", "mediawiki"}:
+            errors.append("SITE_SEARCH_MODE должен быть auto, crawl или mediawiki")
+        if self.resolved_search_mode == "mediawiki":
+            api = urlsplit(self.resolved_mediawiki_api_url)
+            if api.scheme not in {"http", "https"} or not api.hostname:
+                errors.append("MEDIAWIKI_API_URL должен быть полным http/https адресом")
+            elif parsed.hostname and api.hostname.casefold() != parsed.hostname.casefold():
+                errors.append("MEDIAWIKI_API_URL должен находиться на том же домене")
+            if "{title}" not in self.mediawiki_article_path:
+                errors.append("MEDIAWIKI_ARTICLE_PATH должен содержать {title}")
         return errors

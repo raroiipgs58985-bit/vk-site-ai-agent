@@ -8,7 +8,13 @@ services:
     healthCheckPath: /health
     envVars:
       - key: SITE_BASE_URL
-        sync: false
+        value: https://wh40k.lexicanum.com/
+      - key: SITE_SEARCH_MODE
+        value: mediawiki
+      - key: MEDIAWIKI_API_URL
+        value: https://wh40k.lexicanum.com/mediawiki/api.php
+      - key: MEDIAWIKI_ARTICLE_PATH
+        value: /wiki/{title}
       - key: GROQ_API_KEY
         sync: false
       - key: AGENT_SECRET
@@ -16,12 +22,20 @@ services:
       - key: GROQ_MODEL
         value: qwen/qwen3.6-27b
       - key: SITE_MAX_PAGES
-        value: "120"
+        value: "40"
       - key: SITE_DEEP_MAX_PAGES
-        value: "350"
+        value: "100"
+      - key: MEDIAWIKI_RESULTS_PER_QUERY
+        value: "8"
+      - key: MEDIAWIKI_DEEP_RESULTS_PER_QUERY
+        value: "15"
+      - key: MEDIAWIKI_QUERY_LIMIT
+        value: "6"
+      - key: MEDIAWIKI_DEEP_QUERY_LIMIT
+        value: "8"
       - key: SITE_CONCURRENCY
-        value: "4"
+        value: "3"
       - key: SITE_REQUEST_DELAY
-        value: "0.25"
+        value: "0.5"
       - key: RESPECT_ROBOTS_TXT
         value: "true"

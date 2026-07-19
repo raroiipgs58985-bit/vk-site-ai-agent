@@ -1,68 +1,65 @@
-# VK Site AI Agent
+# VK Site AI Agent — Lexicanum / MediaWiki edition
 
-Отдельный HTTP-сервис для «Кубятни». Он просыпается от `POST /ask`, переводит русский вопрос в несколько английских поисковых формулировок через Qwen, обходит один разрешённый сайт, ранжирует найденные фрагменты и возвращает ответ на русском со ссылками.
+Отдельный HTTP-сервис для «Кубятни». При команде `[найди ...` он:
 
-## Что поддерживается
+1. получает русский вопрос;
+2. через Qwen создаёт английские поисковые формулировки и термины Warhammer 40,000;
+3. ищет подходящие статьи через MediaWiki Search на английском Lexicanum;
+4. скачивает только найденные статьи вместо случайного обхода десятков тысяч страниц;
+5. анализирует текст и возвращает русский ответ со ссылками.
 
-- HTML и обычный текст;
-- PDF с текстовым слоем;
-- `sitemap.xml`, вложенные карты сайта и ссылки `Sitemap:` из `robots.txt`;
-- обход ссылок от главной страницы, если карты сайта нет;
-- русский вопрос → английские запросы → русский ответ;
-- строгая привязка к одному домену;
-- защита от SSRF и переходов на сторонние сайты;
-- ограничение страниц, размера файлов, параллельных запросов и скорости обхода;
-- игнорирование инструкций, найденных внутри страниц.
+Если MediaWiki API отвечает ошибкой или блокирует запрос, агент автоматически пробует обычную HTML-страницу `Special:Search`.
 
-JavaScript-содержимое, которое отсутствует в исходном HTML, пока не читается. Сканированные PDF без текстового слоя тоже не распознаются.
+## Настройки для Lexicanum на Render
 
-## Переменные Render
-
-Обязательные:
+Обязательные секреты:
 
 ```text
-SITE_BASE_URL=https://нужный-сайт.example/
 GROQ_API_KEY=gsk_...
 AGENT_SECRET=длинная-случайная-строка
 ```
 
-Модель по умолчанию:
+Настройки сайта:
 
 ```text
-GROQ_MODEL=qwen/qwen3.6-27b
+SITE_BASE_URL=https://wh40k.lexicanum.com/
+SITE_SEARCH_MODE=mediawiki
+MEDIAWIKI_API_URL=https://wh40k.lexicanum.com/mediawiki/api.php
+MEDIAWIKI_ARTICLE_PATH=/wiki/{title}
 ```
 
-Ограничения обхода:
+Ограничения поиска:
 
 ```text
-SITE_MAX_PAGES=120
-SITE_DEEP_MAX_PAGES=350
-SITE_CONCURRENCY=4
-SITE_REQUEST_DELAY=0.25
-SITE_REQUEST_TIMEOUT=20
-SITE_MAX_PAGE_BYTES=3000000
+SITE_MAX_PAGES=40
+SITE_DEEP_MAX_PAGES=100
+MEDIAWIKI_RESULTS_PER_QUERY=8
+MEDIAWIKI_DEEP_RESULTS_PER_QUERY=15
+MEDIAWIKI_QUERY_LIMIT=6
+MEDIAWIKI_DEEP_QUERY_LIMIT=8
+SITE_CONCURRENCY=3
+SITE_REQUEST_DELAY=0.5
 RESPECT_ROBOTS_TXT=true
 ```
 
-## Развёртывание на Render
+Обычный поиск обычно читает до 40 уникальных статей, глубокий — до 100. На практике из-за пересечения результатов часто будет прочитано меньше.
 
-1. Создайте новый GitHub-репозиторий, например `vk-site-ai-agent`.
-2. Загрузите в него содержимое этого каталога.
-3. В Render нажмите **New → Blueprint** и выберите репозиторий. Файл `render.yaml` создаст бесплатный Web Service.
-4. Введите `SITE_BASE_URL`, `GROQ_API_KEY` и придумайте длинный `AGENT_SECRET` (минимум 16 символов).
-5. После развёртывания откройте `/health`.
-6. Скопируйте внешний адрес сервиса и тот же `AGENT_SECRET` в переменные основного бота.
+## Render
 
-Бесплатный Render засыпает через 15 минут без входящих запросов. Следующий `POST /ask` автоматически его разбудит. Первый ответ после сна может формироваться заметно дольше.
+При ручном создании Web Service:
 
-## Проверка вручную
+```text
+Build Command:
+pip install -r requirements.txt
 
-```bash
-curl -X POST "https://YOUR-SERVICE.onrender.com/ask" \
-  -H "Authorization: Bearer YOUR_AGENT_SECRET" \
-  -H "Content-Type: application/json" \
-  -d '{"question":"Кто отвечает за планетарную десятину?","deep":false}'
+Start Command:
+gunicorn app:app --workers 1 --threads 4 --timeout 600 --bind 0.0.0.0:$PORT
+
+Health Check Path:
+/health
 ```
+
+Либо создайте Blueprint по файлу `render.yaml`.
 
 ## API
 
@@ -72,13 +69,17 @@ curl -X POST "https://YOUR-SERVICE.onrender.com/ask" \
 
 ### `POST /ask`
 
-Тело:
-
 ```json
 {
-  "question": "Вопрос на русском или английском",
+  "question": "Кто отвечает за сбор планетарной Десятины?",
   "deep": false
 }
 ```
 
-Ответ содержит `answer`, `sources`, число проверенных страниц, английские поисковые запросы и время выполнения.
+Требуется заголовок:
+
+```text
+Authorization: Bearer AGENT_SECRET
+```
+
+Ответ содержит русский текст, ссылки, число прочитанных статей, время работы и поле `search_backend: "mediawiki"`.

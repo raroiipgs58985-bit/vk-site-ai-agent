@@ -40,6 +40,7 @@ def home():
         status="running",
         configured=not settings.validate(),
         model=settings.groq_model,
+        search_mode=settings.resolved_search_mode,
     )
 
 
@@ -50,6 +51,7 @@ def health():
         ok=not errors,
         service="vk-site-ai-agent",
         model=settings.groq_model,
+        search_mode=settings.resolved_search_mode,
         configuration_errors=errors,
     ), (200 if not errors else 503)
 

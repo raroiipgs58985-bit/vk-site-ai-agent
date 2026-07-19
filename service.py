@@ -5,7 +5,8 @@ from dataclasses import dataclass
 
 from ai import GroqQwenClient
 from config import Settings
-from crawler import SiteCrawler
+from crawler import CrawlOutcome, SiteCrawler
+from mediawiki import MediaWikiSearcher
 from search import build_source_context, chunk_documents, rank_chunks
 from security import validate_public_http_url
 
@@ -21,6 +22,7 @@ class ResearchResult:
     skipped_by_robots: int
     search_queries: list[str]
     elapsed_seconds: float
+    search_backend: str
 
 
 class SiteResearchService:
@@ -29,7 +31,11 @@ class SiteResearchService:
 
     def research(self, question: str, *, deep: bool = False) -> ResearchResult:
         started = time.monotonic()
+        deadline = started + self.settings.job_timeout_seconds
         validate_public_http_url(self.settings.site_base_url)
+        if self.settings.resolved_search_mode == "mediawiki":
+            validate_public_http_url(self.settings.resolved_mediawiki_api_url)
+
         ai = GroqQwenClient(
             api_key=self.settings.groq_api_key,
             model=self.settings.groq_model,
@@ -40,24 +46,42 @@ class SiteResearchService:
         hints = [
             plan.english_question,
             *plan.search_queries,
-            *plan.keywords,
             *plan.entities,
+            *plan.keywords,
         ]
         crawler = SiteCrawler(self.settings)
-        crawl = crawler.crawl(
-            query_hints=hints,
-            deep=deep,
-            deadline=started + self.settings.job_timeout_seconds,
-        )
+        search_backend = self.settings.resolved_search_mode
+
+        if search_backend == "mediawiki":
+            discovery = MediaWikiSearcher(self.settings).discover(
+                hints,
+                deep=deep,
+                deadline=deadline,
+            )
+            crawl = crawler.fetch_urls(discovery.urls, deadline=deadline)
+            crawl = CrawlOutcome(
+                pages=crawl.pages,
+                discovered_urls=len(discovery.urls),
+                attempted_urls=crawl.attempted_urls,
+                errors=crawl.errors + discovery.errors,
+                skipped_by_robots=crawl.skipped_by_robots,
+            )
+        else:
+            crawl = crawler.crawl(
+                query_hints=hints,
+                deep=deep,
+                deadline=deadline,
+            )
+
         chunks = chunk_documents(crawl.pages)
-        ranked = rank_chunks(chunks, plan, limit=16 if deep else 12)
+        ranked = rank_chunks(chunks, plan, limit=18 if deep else 14)
         if not ranked:
             elapsed = time.monotonic() - started
             return ResearchResult(
                 answer=(
                     "На проверенных страницах не найдено фрагментов, достаточно близких "
                     "к вопросу. Это не доказывает, что информации на сайте нет: она могла "
-                    "находиться на странице, которую нельзя было прочитать, либо быть "
+                    "находиться на странице, которую сайт не выдал в поиске, либо быть "
                     "сформулирована иначе."
                 ),
                 sources=[],
@@ -68,6 +92,7 @@ class SiteResearchService:
                 skipped_by_robots=crawl.skipped_by_robots,
                 search_queries=plan.search_queries,
                 elapsed_seconds=elapsed,
+                search_backend=search_backend,
             )
 
         context, included = build_source_context(
@@ -105,4 +130,5 @@ class SiteResearchService:
             skipped_by_robots=crawl.skipped_by_robots,
             search_queries=plan.search_queries,
             elapsed_seconds=time.monotonic() - started,
+            search_backend=search_backend,
         )

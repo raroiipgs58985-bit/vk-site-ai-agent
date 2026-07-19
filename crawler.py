@@ -121,6 +121,18 @@ class SiteCrawler:
             return self._fetch_candidate_batch(candidates, deadline=deadline)
         return self._crawl_breadth_first(limit=limit, deadline=deadline)
 
+    def fetch_urls(
+        self, urls: Iterable[str], *, deadline: float | None = None
+    ) -> CrawlOutcome:
+        normalized: list[str] = []
+        for value in urls:
+            url = self._normalize_url(value)
+            if url and self._is_fetchable_page_url(url):
+                normalized.append(url)
+        return self._fetch_candidate_batch(
+            list(dict.fromkeys(normalized)), deadline=deadline
+        )
+
     def _load_robots(self) -> RobotFileParser | None:
         if not self.settings.respect_robots:
             return None
@@ -399,8 +411,24 @@ class SiteCrawler:
         ):
             tag.decompose()
 
+        for selector in (
+            ".mw-editsection",
+            ".mw-jump-link",
+            ".printfooter",
+            ".catlinks",
+            ".navbox",
+            ".vertical-navbox",
+            ".metadata",
+            ".noprint",
+            "#toc",
+            "#siteSub",
+            "#contentSub",
+        ):
+            for node in soup.select(selector):
+                node.decompose()
+
         title = ""
-        heading = soup.find("h1")
+        heading = soup.select_one("#firstHeading") or soup.find("h1")
         if heading:
             title = heading.get_text(" ", strip=True)
         if not title and soup.title:
@@ -408,7 +436,14 @@ class SiteCrawler:
         if not title:
             title = PurePosixPath(urlsplit(url).path).name or url
 
-        root = soup.find("article") or soup.find("main") or soup.body or soup
+        root = (
+            soup.select_one("#mw-content-text .mw-parser-output")
+            or soup.select_one("#mw-content-text")
+            or soup.find("article")
+            or soup.find("main")
+            or soup.body
+            or soup
+        )
         text = root.get_text(" ", strip=True)
         return _SPACE_RE.sub(" ", title).strip()[:300], _SPACE_RE.sub(" ", text).strip()
 
