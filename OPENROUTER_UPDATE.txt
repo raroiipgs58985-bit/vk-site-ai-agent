@@ -1,0 +1,13 @@
+ОБНОВЛЕНИЕ ПОД OPENROUTER
+
+Загрузите содержимое этой папки в корень репозитория vk-site-ai-agent.
+Файлы с совпадающими именами нужно заменить.
+
+На Render агента добавьте:
+OPENROUTER_API_KEY = ваш ключ sk-or-v1-...
+OPENROUTER_MODEL = openrouter/free
+SITE_BASE_URL = https://wh40k.lexicanum.com/
+AGENT_SECRET = ваша секретная строка минимум 16 символов
+
+Старые переменные GROQ_API_KEY и GROQ_MODEL больше не используются.
+Сам API-ключ не публикуйте в GitHub и не отправляйте в чат.

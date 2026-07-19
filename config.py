@@ -34,8 +34,8 @@ def _env_bool(name: str, default: bool) -> bool:
 class Settings:
     site_base_url: str
     agent_secret: str
-    groq_api_key: str
-    groq_model: str
+    openrouter_api_key: str
+    openrouter_model: str
     user_agent: str
     max_pages: int
     deep_max_pages: int
@@ -66,9 +66,9 @@ class Settings:
         return cls(
             site_base_url=base_url,
             agent_secret=os.environ.get("AGENT_SECRET", "").strip(),
-            groq_api_key=os.environ.get("GROQ_API_KEY", "").strip(),
-            groq_model=os.environ.get(
-                "GROQ_MODEL", "qwen/qwen3.6-27b"
+            openrouter_api_key=os.environ.get("OPENROUTER_API_KEY", "").strip(),
+            openrouter_model=os.environ.get(
+                "OPENROUTER_MODEL", "openrouter/free"
             ).strip(),
             user_agent=os.environ.get(
                 "SITE_USER_AGENT", "KubyatnyaSiteAgent/2.1 (+site research bot)"
@@ -124,10 +124,10 @@ class Settings:
             errors.append("SITE_BASE_URL должен быть полным адресом http:// или https://")
         if not self.agent_secret or len(self.agent_secret) < 16:
             errors.append("AGENT_SECRET должен содержать не менее 16 символов")
-        if not self.groq_api_key:
-            errors.append("GROQ_API_KEY не задан")
-        if not self.groq_model:
-            errors.append("GROQ_MODEL не задан")
+        if not self.openrouter_api_key:
+            errors.append("OPENROUTER_API_KEY не задан")
+        if not self.openrouter_model:
+            errors.append("OPENROUTER_MODEL не задан")
         if self.search_mode not in {"auto", "crawl", "mediawiki"}:
             errors.append("SITE_SEARCH_MODE должен быть auto, crawl или mediawiki")
         if self.resolved_search_mode == "mediawiki":

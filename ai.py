@@ -8,7 +8,7 @@ from typing import Any
 import requests
 
 
-_GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+_OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
@@ -31,10 +31,16 @@ class AnswerDraft:
     confidence: str
 
 
-class GroqQwenClient:
-    def __init__(self, *, api_key: str, model: str, timeout_seconds: int = 90) -> None:
+class OpenRouterClient:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str,
+        timeout_seconds: int = 120,
+    ) -> None:
         self.api_key = api_key.strip()
-        self.model = model.strip()
+        self.model = model.strip() or "openrouter/free"
         self.timeout_seconds = max(10, int(timeout_seconds))
         self.session = requests.Session()
 
@@ -47,14 +53,16 @@ class GroqQwenClient:
         temperature: float,
     ) -> dict[str, Any]:
         if not self.api_key:
-            raise AIServiceError("GROQ_API_KEY не задан")
+            raise AIServiceError("OPENROUTER_API_KEY не задан")
 
         response = self.session.post(
-            _GROQ_URL,
+            _OPENROUTER_URL,
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
-                "User-Agent": "KubyatnyaSiteAgent/2.0",
+                "User-Agent": "KubyatnyaSiteAgent/3.0",
+                "HTTP-Referer": "https://github.com/raroiipgs58985-bit",
+                "X-OpenRouter-Title": "Kubyatnya Site Agent",
             },
             json={
                 "model": self.model,
@@ -63,40 +71,39 @@ class GroqQwenClient:
                     {"role": "user", "content": user},
                 ],
                 "temperature": temperature,
-                "max_completion_tokens": max_tokens,
+                "max_tokens": max_tokens,
                 "response_format": {"type": "json_object"},
-                "reasoning_format": "hidden",
             },
             timeout=self.timeout_seconds,
         )
         if response.status_code == 429:
             retry_after = response.headers.get("retry-after", "")
             suffix = f" Повторите через {retry_after} сек." if retry_after else ""
-            raise AIServiceError("Исчерпан временный лимит Groq." + suffix)
+            raise AIServiceError("Исчерпан временный лимит OpenRouter." + suffix)
         if response.status_code >= 400:
             detail = response.text[:500]
             raise AIServiceError(
-                f"Groq вернул HTTP {response.status_code}: {detail}"
+                f"OpenRouter вернул HTTP {response.status_code}: {detail}"
             )
 
         try:
             payload = response.json()
             content = payload["choices"][0]["message"]["content"]
         except (ValueError, KeyError, IndexError, TypeError) as exc:
-            raise AIServiceError("Groq вернул неожиданный ответ") from exc
+            raise AIServiceError("OpenRouter вернул неожиданный ответ") from exc
 
         if not isinstance(content, str):
-            raise AIServiceError("В ответе Groq отсутствует текст")
+            raise AIServiceError("В ответе OpenRouter отсутствует текст")
         try:
             return json.loads(content)
         except json.JSONDecodeError:
             match = _JSON_OBJECT_RE.search(content)
             if not match:
-                raise AIServiceError("Qwen не вернул корректный JSON")
+                raise AIServiceError("Модель не вернула корректный JSON")
             try:
                 return json.loads(match.group(0))
             except json.JSONDecodeError as exc:
-                raise AIServiceError("Qwen вернул повреждённый JSON") from exc
+                raise AIServiceError("Модель вернула повреждённый JSON") from exc
 
     def plan_queries(self, question: str) -> QueryPlan:
         system = (
@@ -161,7 +168,7 @@ class GroqQwenClient:
         )
         answer = str(payload.get("answer", "")).strip()
         if not answer:
-            raise AIServiceError("Qwen вернул пустой ответ")
+            raise AIServiceError("Модель вернула пустой ответ")
         answer = answer[:max_answer_chars]
 
         used: list[int] = []

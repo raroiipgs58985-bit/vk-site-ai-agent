@@ -15,12 +15,12 @@ services:
         value: https://wh40k.lexicanum.com/mediawiki/api.php
       - key: MEDIAWIKI_ARTICLE_PATH
         value: /wiki/{title}
-      - key: GROQ_API_KEY
+      - key: OPENROUTER_API_KEY
         sync: false
       - key: AGENT_SECRET
         sync: false
-      - key: GROQ_MODEL
-        value: qwen/qwen3.6-27b
+      - key: OPENROUTER_MODEL
+        value: openrouter/free
       - key: SITE_MAX_PAGES
         value: "40"
       - key: SITE_DEEP_MAX_PAGES

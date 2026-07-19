@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-from ai import GroqQwenClient
+from ai import OpenRouterClient
 from config import Settings
 from crawler import CrawlOutcome, SiteCrawler
 from mediawiki import MediaWikiSearcher
@@ -36,9 +36,9 @@ class SiteResearchService:
         if self.settings.resolved_search_mode == "mediawiki":
             validate_public_http_url(self.settings.resolved_mediawiki_api_url)
 
-        ai = GroqQwenClient(
-            api_key=self.settings.groq_api_key,
-            model=self.settings.groq_model,
+        ai = OpenRouterClient(
+            api_key=self.settings.openrouter_api_key,
+            model=self.settings.openrouter_model,
             timeout_seconds=min(120, self.settings.job_timeout_seconds),
         )
         plan = ai.plan_queries(question)
