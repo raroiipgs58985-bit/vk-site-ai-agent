@@ -50,8 +50,8 @@ def test_sitemap_crawl_allows_missing_robots() -> None:
         settings = Settings(
             site_base_url=base,
             agent_secret="x" * 20,
-            groq_api_key="test",
-            groq_model="qwen/qwen3.6-27b",
+            openrouter_api_key="test",
+            openrouter_model="openrouter/free",
             user_agent="test-agent",
             max_pages=10,
             deep_max_pages=20,
