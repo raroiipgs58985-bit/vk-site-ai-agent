@@ -1,0 +1,7 @@
+[
+  "tests/test_config.py::test_invalid_empty_settings_report_errors",
+  "tests/test_crawler.py::test_sitemap_crawl_allows_missing_robots",
+  "tests/test_mediawiki.py::test_mediawiki_search_discovers_and_fetches_articles",
+  "tests/test_mediawiki.py::test_mediawiki_search_falls_back_to_html",
+  "tests/test_search.py::test_english_plan_finds_relevant_chunk"
+]
