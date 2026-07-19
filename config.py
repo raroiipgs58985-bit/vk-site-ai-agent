@@ -36,6 +36,7 @@ class Settings:
     agent_secret: str
     openrouter_api_key: str
     openrouter_model: str
+    tavily_api_key: str
     user_agent: str
     max_pages: int
     deep_max_pages: int
@@ -56,6 +57,9 @@ class Settings:
     mediawiki_deep_results_per_query: int = 15
     mediawiki_query_limit: int = 6
     mediawiki_deep_query_limit: int = 8
+    tavily_max_results: int = 8
+    tavily_deep_max_results: int = 12
+    tavily_timeout_seconds: int = 90
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -70,8 +74,9 @@ class Settings:
             openrouter_model=os.environ.get(
                 "OPENROUTER_MODEL", "openrouter/free"
             ).strip(),
+            tavily_api_key=os.environ.get("TAVILY_API_KEY", "").strip(),
             user_agent=os.environ.get(
-                "SITE_USER_AGENT", "KubyatnyaSiteAgent/2.1 (+site research bot)"
+                "SITE_USER_AGENT", "KubyatnyaSiteAgent/4.0 (+site research bot)"
             ).strip(),
             max_pages=_env_int("SITE_MAX_PAGES", 40, 1, 2000),
             deep_max_pages=_env_int("SITE_DEEP_MAX_PAGES", 100, 1, 5000),
@@ -100,12 +105,17 @@ class Settings:
             mediawiki_deep_query_limit=_env_int(
                 "MEDIAWIKI_DEEP_QUERY_LIMIT", 8, 1, 16
             ),
+            tavily_max_results=_env_int("TAVILY_MAX_RESULTS", 8, 1, 20),
+            tavily_deep_max_results=_env_int("TAVILY_DEEP_MAX_RESULTS", 12, 1, 20),
+            tavily_timeout_seconds=_env_int("TAVILY_TIMEOUT", 90, 10, 150),
         )
 
     @property
     def resolved_search_mode(self) -> str:
-        if self.search_mode in {"crawl", "mediawiki"}:
+        if self.search_mode in {"crawl", "mediawiki", "tavily"}:
             return self.search_mode
+        if self.tavily_api_key:
+            return "tavily"
         hostname = (urlsplit(self.site_base_url).hostname or "").casefold()
         if self.mediawiki_api_url or hostname.endswith("lexicanum.com"):
             return "mediawiki"
@@ -115,7 +125,7 @@ class Settings:
     def resolved_mediawiki_api_url(self) -> str:
         if self.mediawiki_api_url:
             return self.mediawiki_api_url
-        return urljoin(self.site_base_url, "/mediawiki/api.php")
+        return urljoin(self.site_base_url, "/mediawiki/")
 
     def validate(self) -> list[str]:
         errors: list[str] = []
@@ -128,8 +138,10 @@ class Settings:
             errors.append("OPENROUTER_API_KEY не задан")
         if not self.openrouter_model:
             errors.append("OPENROUTER_MODEL не задан")
-        if self.search_mode not in {"auto", "crawl", "mediawiki"}:
-            errors.append("SITE_SEARCH_MODE должен быть auto, crawl или mediawiki")
+        if self.search_mode not in {"auto", "crawl", "mediawiki", "tavily"}:
+            errors.append("SITE_SEARCH_MODE должен быть auto, crawl, mediawiki или tavily")
+        if self.resolved_search_mode == "tavily" and not self.tavily_api_key:
+            errors.append("TAVILY_API_KEY не задан")
         if self.resolved_search_mode == "mediawiki":
             api = urlsplit(self.resolved_mediawiki_api_url)
             if api.scheme not in {"http", "https"} or not api.hostname:

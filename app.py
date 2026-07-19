@@ -84,8 +84,11 @@ def ask():
         service = SiteResearchService(settings)
         result = service.research(question, deep=deep)
         logger.info(
-            "Research finished. pages=%d elapsed=%.1fs confidence=%s",
+            "Research finished. backend=%s urls=%d pages=%d errors=%d elapsed=%.1fs confidence=%s",
+            result.search_backend,
+            result.urls_discovered,
             result.pages_scanned,
+            result.errors,
             result.elapsed_seconds,
             result.confidence,
         )

@@ -9,6 +9,7 @@ from crawler import CrawlOutcome, SiteCrawler
 from mediawiki import MediaWikiSearcher
 from search import build_source_context, chunk_documents, rank_chunks
 from security import validate_public_http_url
+from tavily_search import TavilySearcher
 
 
 @dataclass(frozen=True)
@@ -44,45 +45,59 @@ class SiteResearchService:
         plan = ai.plan_queries(question)
 
         hints = [
+            *plan.entities,
             plan.english_question,
             *plan.search_queries,
-            *plan.entities,
             *plan.keywords,
         ]
-        crawler = SiteCrawler(self.settings)
         search_backend = self.settings.resolved_search_mode
 
-        if search_backend == "mediawiki":
-            discovery = MediaWikiSearcher(self.settings).discover(
-                hints,
-                deep=deep,
-                deadline=deadline,
-            )
-            crawl = crawler.fetch_urls(discovery.urls, deadline=deadline)
+        if search_backend == "tavily":
+            outcome = TavilySearcher(self.settings).search(plan, deep=deep)
             crawl = CrawlOutcome(
-                pages=crawl.pages,
-                discovered_urls=len(discovery.urls),
-                attempted_urls=crawl.attempted_urls,
-                errors=crawl.errors + discovery.errors,
-                skipped_by_robots=crawl.skipped_by_robots,
+                pages=outcome.pages,
+                discovered_urls=outcome.urls_discovered,
+                attempted_urls=outcome.queries_attempted,
+                errors=outcome.errors,
+                skipped_by_robots=0,
             )
         else:
-            crawl = crawler.crawl(
-                query_hints=hints,
-                deep=deep,
-                deadline=deadline,
-            )
+            crawler = SiteCrawler(self.settings)
+            if search_backend == "mediawiki":
+                discovery = MediaWikiSearcher(self.settings).discover(
+                    hints,
+                    deep=deep,
+                    deadline=deadline,
+                )
+                fetched = crawler.fetch_urls(discovery.urls, deadline=deadline)
+                crawl = CrawlOutcome(
+                    pages=fetched.pages,
+                    discovered_urls=len(discovery.urls),
+                    attempted_urls=fetched.attempted_urls,
+                    errors=fetched.errors + discovery.errors,
+                    skipped_by_robots=fetched.skipped_by_robots,
+                )
+            else:
+                crawl = crawler.crawl(
+                    query_hints=hints,
+                    deep=deep,
+                    deadline=deadline,
+                )
 
         chunks = chunk_documents(crawl.pages)
         ranked = rank_chunks(chunks, plan, limit=18 if deep else 14)
         if not ranked:
             elapsed = time.monotonic() - started
+            if crawl.discovered_urls == 0:
+                reason = "Поисковый сервис не вернул страниц с указанного сайта."
+            elif not crawl.pages:
+                reason = "Найденные страницы не удалось прочитать."
+            else:
+                reason = "В найденных материалах нет фрагментов, достаточно близких к вопросу."
             return ResearchResult(
                 answer=(
-                    "На проверенных страницах не найдено фрагментов, достаточно близких "
-                    "к вопросу. Это не доказывает, что информации на сайте нет: она могла "
-                    "находиться на странице, которую сайт не выдал в поиске, либо быть "
-                    "сформулирована иначе."
+                    reason + " Это не доказывает, что информации на сайте нет: она могла "
+                    "быть сформулирована иначе или отсутствовать в поисковом индексе."
                 ),
                 sources=[],
                 confidence="low",
